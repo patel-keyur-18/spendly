@@ -44,3 +44,7 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 .superpowers/
+
+# Personal backup files dropped in for macOS import testing — never commit real financial data
+/mscos-backup/
+*.spendly-backup*.json
