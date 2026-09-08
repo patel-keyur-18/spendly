@@ -83,6 +83,49 @@ jobs:
           omitNameDuringUpdate: true
           artifacts: dist/*.apk
 
+  build-macos:
+    needs: tag-and-release
+    if: needs.tag-and-release.outputs.new_tag != ''
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag-and-release.outputs.new_tag }}
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+
+      # No Apple Developer signing identity is configured yet, so this
+      # ships as an unsigned, non-notarized .app (see the iOS note above
+      # for why). Good enough to sideload for testing; users will need to
+      # right-click > Open (or clear the quarantine flag) the first time.
+      - run: flutter build macos --release
+
+      - name: Package app into a .dmg
+        run: |
+          mkdir -p dist dmg-root
+          cp -R "build/macos/Build/Products/Release/Spendly.app" dmg-root/
+          ln -s /Applications dmg-root/Applications
+          hdiutil create -volname Spendly \
+            -srcfolder dmg-root \
+            -ov -format UDZO \
+            "dist/spendly-${{ needs.tag-and-release.outputs.new_tag }}-macos.dmg"
+
+      - name: Attach DMG to release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ needs.tag-and-release.outputs.new_tag }}
+          allowUpdates: true
+          omitBodyDuringUpdate: true
+          omitNameDuringUpdate: true
+          artifacts: dist/*.dmg
+
   # No iOS build job: a real device-installable .ipa needs an Apple
   # Developer distribution certificate + provisioning profile. A free
   # Apple ID's signing only lasts 7 days and is tied to an interactive
@@ -90,3 +133,6 @@ jobs:
   # GitHub Actions runner without re-generating and re-uploading secrets
   # every week — not something a CI pipeline can do unattended. Revisit
   # this once a paid Apple Developer Program membership is available.
+  #
+  # No Windows build job: this app currently ships macOS-only desktop
+  # support alongside Android — Windows isn't targeted yet.
