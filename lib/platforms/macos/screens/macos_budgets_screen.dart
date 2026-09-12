@@ -11,10 +11,12 @@ import '../../../core/widgets/category_glyph.dart';
 import '../../../features/budgets/budget_repository.dart';
 import '../../../features/home/dashboard_providers.dart' show categoriesByIdProvider, ignoredCategoryIds;
 
-/// Read-only budget status — reuses `effectiveOverallBudget` and the same
-/// three-tier status split (on track / near limit / over) the mobile app's
-/// threshold notifications (80%/100%) are built around, just rendered as a
-/// pill instead of a push notification.
+/// Risk console — a fixed summary rail (the one number that matters) next
+/// to a bar-chart comparison sorted purely by risk (highest % used first),
+/// built for a fast "is anything about to blow" scan rather than an
+/// alphabetical browse. Same `effectiveOverallBudget`/threshold math as
+/// mobile's push-notification thresholds (80%/100%); just laid out
+/// differently.
 class MacosBudgetsScreen extends ConsumerWidget {
   const MacosBudgetsScreen({super.key});
 
@@ -33,72 +35,117 @@ class MacosBudgetsScreen extends ConsumerWidget {
     final spentTotal = spend.entries.where((e) => !ignored.contains(e.key)).fold(Money.zero, (s, e) => s + e.value);
 
     final hasOverall = overall != null && overall.minor > 0;
+    final overallRatio = hasOverall ? spentTotal.ratioOf(overall).clamp(0.0, 1.0) : 0.0;
     final overallPct = hasOverall ? (spentTotal.ratioOf(overall) * 100).round() : 0;
     final overallStatus = _statusOf(spentTotal, overall);
 
-    final rows = perCategoryBudgets.entries.where((e) => byId[e.key] != null).toList()
-      ..sort((a, b) => byId[a.key]!.name.compareTo(byId[b.key]!.name));
+    final rows = perCategoryBudgets.entries.where((e) => byId[e.key] != null).map((e) {
+      final category = byId[e.key]!;
+      final budget = e.value;
+      final spentAmt = spend[e.key] ?? Money.zero;
+      final ratio = budget.minor <= 0 ? 0.0 : spentAmt.ratioOf(budget);
+      return (category: category, budget: budget, spent: spentAmt, ratio: ratio);
+    }).toList()
+      ..sort((a, b) => b.ratio.compareTo(a.ratio));
+
+    final overCount = rows.where((r) => r.ratio >= 1.0).length;
+    final nearCount = rows.where((r) => r.ratio >= 0.8 && r.ratio < 1.0).length;
+    final onTrackCount = rows.where((r) => r.ratio < 0.8).length;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(28, 20, 28, 32),
       children: [
-        if (hasOverall)
-          AppCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 240,
+              child: AppCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Overall — ${DateFormat.MMMM().format(DateTime.now())}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                    _StatusPill(status: overallStatus),
+                    Text(
+                      'Overall — ${DateFormat.MMMM().format(DateTime.now())}',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 11, letterSpacing: 0.5),
+                    ),
+                    const SizedBox(height: 14),
+                    if (hasOverall) ...[
+                      Row(
+                        children: [
+                          SizedBox(
+                            width: 64,
+                            height: 64,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                CircularProgressIndicator(
+                                  value: overallRatio,
+                                  strokeWidth: 7,
+                                  backgroundColor: Theme.of(context).extension<AppPalette>()!.card2,
+                                  valueColor: AlwaysStoppedAnimation(_statusColor(overallStatus)),
+                                ),
+                                Text('$overallPct%', style: const TextStyle(fontFamily: 'Sora', fontWeight: FontWeight.w700, fontSize: 14)),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(spentTotal.format(locale: 'en_IN'), style: const TextStyle(fontFamily: 'Sora', fontWeight: FontWeight.w700, fontSize: 16)),
+                                Text(
+                                  'of ${overall.format(locale: 'en_IN')}',
+                                  style: TextStyle(fontSize: 11, color: Theme.of(context).extension<AppPalette>()!.textDim),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ] else
+                      Text('No overall budget set.', style: TextStyle(color: Theme.of(context).extension<AppPalette>()!.textDim, fontSize: 12)),
+                    const SizedBox(height: 18),
+                    Divider(height: 1, color: Theme.of(context).extension<AppPalette>()!.line),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        _RailStat(count: overCount, label: 'Over', color: AppColors.red),
+                        _RailStat(count: nearCount, label: 'Near', color: AppColors.amberDeep),
+                        _RailStat(count: onTrackCount, label: 'On track', color: AppColors.green),
+                      ],
+                    ),
                   ],
                 ),
-                const SizedBox(height: 14),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(spentTotal.format(locale: 'en_IN'), style: const TextStyle(fontFamily: 'Sora', fontWeight: FontWeight.w700, fontSize: 20)),
-                    Text('of ${overall.format(locale: 'en_IN')} · $overallPct% used', style: TextStyle(fontSize: 12, color: Theme.of(context).extension<AppPalette>()!.textDim)),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(100),
-                  child: LinearProgressIndicator(
-                    value: spentTotal.ratioOf(overall).clamp(0.0, 1.0),
-                    minHeight: 8,
-                    backgroundColor: Theme.of(context).extension<AppPalette>()!.card2,
-                    valueColor: AlwaysStoppedAnimation(_statusColor(overallStatus)),
-                  ),
-                ),
-              ],
+              ),
             ),
-          )
-        else
-          AppCard(
-            child: Text(
-              'No overall budget set for this month.',
-              style: TextStyle(color: Theme.of(context).extension<AppPalette>()!.textDim),
+            const SizedBox(width: AppSpacing.lg),
+            Expanded(
+              child: rows.isEmpty
+                  ? AppCard(
+                      child: Text(
+                        'No per-category budgets set for this month.',
+                        style: TextStyle(color: Theme.of(context).extension<AppPalette>()!.textDim),
+                      ),
+                    )
+                  : AppCard(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Column(
+                        children: [
+                          for (var i = 0; i < rows.length; i++)
+                            _RiskRow(
+                              category: rows[i].category,
+                              budget: rows[i].budget,
+                              spent: rows[i].spent,
+                              ratio: rows[i].ratio,
+                              showDivider: i > 0,
+                            ),
+                        ],
+                      ),
+                    ),
             ),
-          ),
-        const SizedBox(height: AppSpacing.lg),
-        if (rows.isEmpty)
-          const SizedBox.shrink()
-        else
-          AppCard(
-            child: Column(
-              children: [
-                for (var i = 0; i < rows.length; i++)
-                  _BudgetRow(
-                    category: byId[rows[i].key]!,
-                    budget: rows[i].value,
-                    spent: spend[rows[i].key] ?? Money.zero,
-                    showDivider: i > 0,
-                  ),
-              ],
-            ),
-          ),
+          ],
+        ),
       ],
     );
   }
@@ -113,7 +160,7 @@ class MacosBudgetsScreen extends ConsumerWidget {
 
   Color _statusColor(_BudgetStatus s) => switch (s) {
         _BudgetStatus.over => AppColors.red,
-        _BudgetStatus.near => AppColors.accent,
+        _BudgetStatus.near => AppColors.amberDeep,
         _BudgetStatus.onTrack => AppColors.green,
         _BudgetStatus.none => AppColors.primary,
       };
@@ -121,99 +168,101 @@ class MacosBudgetsScreen extends ConsumerWidget {
 
 enum _BudgetStatus { onTrack, near, over, none }
 
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.status});
-  final _BudgetStatus status;
+class _RailStat extends StatelessWidget {
+  const _RailStat({required this.count, required this.label, required this.color});
+  final int count;
+  final String label;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final (color, label) = switch (status) {
-      _BudgetStatus.over => (AppColors.red, 'Over'),
-      _BudgetStatus.near => (AppColors.amberDeep, 'Near limit'),
-      _BudgetStatus.onTrack => (AppColors.green, 'On track'),
-      _BudgetStatus.none => (Theme.of(context).extension<AppPalette>()!.textDim, 'No budget'),
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.13), borderRadius: BorderRadius.circular(AppRadius.chip)),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+    final palette = Theme.of(context).extension<AppPalette>()!;
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(width: 6, height: 6, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-          const SizedBox(width: 6),
-          Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+          Text('$count', style: TextStyle(fontFamily: 'Sora', fontWeight: FontWeight.w700, fontSize: 17, color: color)),
+          Text(label, style: TextStyle(fontSize: 10, color: palette.textDim)),
         ],
       ),
     );
   }
 }
 
-class _BudgetRow extends StatelessWidget {
-  const _BudgetRow({required this.category, required this.budget, required this.spent, required this.showDivider});
+class _RiskRow extends StatelessWidget {
+  const _RiskRow({required this.category, required this.budget, required this.spent, required this.ratio, required this.showDivider});
   final CategoryRow category;
   final Money budget;
   final Money spent;
+  final double ratio;
   final bool showDivider;
 
   @override
   Widget build(BuildContext context) {
     final palette = Theme.of(context).extension<AppPalette>()!;
-    final pct = spent.ratioOf(budget);
-    final status = pct >= 1.0
+    final status = ratio >= 1.0
         ? _BudgetStatus.over
-        : pct >= 0.8
+        : ratio >= 0.8
             ? _BudgetStatus.near
             : _BudgetStatus.onTrack;
     final color = switch (status) {
       _BudgetStatus.over => AppColors.red,
-      _BudgetStatus.near => AppColors.accent,
+      _BudgetStatus.near => AppColors.amberDeep,
       _BudgetStatus.onTrack => AppColors.green,
       _BudgetStatus.none => AppColors.primary,
     };
+    final pct = (ratio * 100).round();
 
     return Column(
       children: [
         if (showDivider) Divider(height: 1, color: palette.line),
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+          child: Row(
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(color: category.color, borderRadius: BorderRadius.circular(9)),
-                        alignment: Alignment.center,
-                        child: CategoryGlyph(category.icon, size: 13),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(category.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                    ],
+              SizedBox(
+                width: 150,
+                child: Row(
+                  children: [
+                    Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(color: category.color, borderRadius: BorderRadius.circular(8)),
+                      alignment: Alignment.center,
+                      child: CategoryGlyph(category.icon, size: 12),
+                    ),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Text(category.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: SizedBox(
+                    height: 16,
+                    child: Stack(
+                      children: [
+                        Container(color: palette.card2),
+                        FractionallySizedBox(
+                          widthFactor: ratio.clamp(0.0, 1.0),
+                          child: Container(color: color),
+                        ),
+                      ],
+                    ),
                   ),
-                  _StatusPill(status: status),
-                ],
+                ),
               ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('${spent.format(locale: 'en_IN')} of ${budget.format(locale: 'en_IN')}', style: TextStyle(fontSize: 12, color: palette.textDim)),
-                  Text('${(pct * 100).round()}%', style: TextStyle(fontSize: 12, color: palette.textDim)),
-                ],
-              ),
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(100),
-                child: LinearProgressIndicator(
-                  value: pct.clamp(0.0, 1.0),
-                  minHeight: 6,
-                  backgroundColor: palette.card2,
-                  valueColor: AlwaysStoppedAnimation(color),
+              const SizedBox(width: 14),
+              SizedBox(
+                width: 110,
+                child: Text(
+                  '$pct% · ${spent.format(locale: 'en_IN')}',
+                  textAlign: TextAlign.right,
+                  style: TextStyle(fontSize: 11.5, color: palette.textDim),
                 ),
               ),
             ],
