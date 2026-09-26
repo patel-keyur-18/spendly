@@ -74,6 +74,7 @@ class RecurringRepository {
         note: template.note,
         paymentMethod: template.paymentMethod,
         tagId: template.tagId,
+        accountId: template.accountId,
         fxCurrency: template.fxCurrency,
         fxAmount: template.fxAmount,
       );

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import '../../core/money/money.dart';
 import '../../core/theme/tokens.dart';
@@ -165,12 +166,14 @@ class _BalanceCard extends ConsumerWidget {
     // theme's own card color (not a flat swatch) so it stays correct in
     // both light and dark mode instead of just the light-mode hue.
     final tint = total.minor < 0 ? AppColors.red : AppColors.green;
+    // Masked by default so the figure never shows in public; the tint is
+    // dropped too while hidden, since red vs green alone leaks the sign.
+    final hidden = ref.watch(balanceHiddenProvider);
     // Blended off the glass tint (not the flat card color) so the sign
     // reads at a glance while the card stays part of the glass family.
-    final tintedGlass = Color.alphaBlend(
-      tint.withValues(alpha: 0.16),
-      palette.glassCard,
-    );
+    final tintedGlass = hidden
+        ? palette.glassCard
+        : Color.alphaBlend(tint.withValues(alpha: 0.16), palette.glassCard);
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.md),
       child: AppCard(
@@ -181,23 +184,50 @@ class _BalanceCard extends ConsumerWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Balance across accounts',
-                  style: TextStyle(fontSize: 12, color: palette.textDim),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  total.format(locale: 'en_IN'),
-                  style: const TextStyle(
-                    fontFamily: 'Sora',
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
+            // Flexible so the label ellipsizes instead of overflowing at
+            // large text scales now that the eye icon shares its row.
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          'Balance across accounts',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12, color: palette.textDim),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: hidden ? 'Show balance' : 'Hide balance',
+                        visualDensity: VisualDensity.compact,
+                        iconSize: 18,
+                        color: palette.textDim,
+                        icon: Icon(
+                          hidden
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                        ),
+                        onPressed: () =>
+                            ref.read(balanceHiddenProvider.notifier).toggle(),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                  Text(
+                    hidden
+                        ? '${NumberFormat.simpleCurrency(locale: 'en_IN').currencySymbol} ••••••'
+                        : total.format(locale: 'en_IN'),
+                    semanticsLabel: hidden ? 'Balance hidden' : null,
+                    style: const TextStyle(
+                      fontFamily: 'Sora',
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
             ),
             Row(
               mainAxisSize: MainAxisSize.min,
