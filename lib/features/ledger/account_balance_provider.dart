@@ -65,3 +65,20 @@ final totalBalanceProvider = Provider<Money>((ref) {
     (sum, a) => sum + (balances[a.id] ?? Money.zero),
   );
 });
+
+/// Whether the Home "Balance across accounts" figure is masked, so opening
+/// the app in public never shows it. In-memory only (same as
+/// `appUnlockedProvider`): every cold start begins hidden, and `app.dart`
+/// re-hides it whenever the app leaves the foreground.
+class BalanceHiddenNotifier extends Notifier<bool> {
+  @override
+  bool build() => true;
+
+  void toggle() => state = !state;
+
+  void hide() => state = true;
+}
+
+final balanceHiddenProvider = NotifierProvider<BalanceHiddenNotifier, bool>(
+  BalanceHiddenNotifier.new,
+);

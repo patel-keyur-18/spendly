@@ -1,8 +1,10 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:spendly/core/db/database.dart';
 import 'package:spendly/core/db/row_extensions.dart';
 import 'package:spendly/core/money/money.dart';
+import 'package:spendly/features/accounts/account_repository.dart';
 import 'package:spendly/features/expenses/expense_repository.dart';
 import 'package:spendly/features/expenses/recurring_repository.dart';
 
@@ -85,6 +87,20 @@ void main() {
       expect(logged.note, 'Rent');
       expect(logged.paymentMethod, 'UPI');
       expect(logged.categoryId, 1);
+    });
+
+    test('keeps the template account on the logged expense', () async {
+      // Dropping it logged every occurrence as "No account", so the paying
+      // account's balance never moved.
+      final accountId = await AccountRepository(db)
+          .create(name: 'HDFC', type: AccountType.bank);
+      final rent = await seedRent();
+      await expenses.update(rent.id, accountId: Value(accountId));
+      await recurring.confirm(await reload(rent.id), DateTime(2026, 7, 1));
+
+      final logged = (await expenses.watchMonth(DateTime(2026, 7, 1)).first)
+          .single;
+      expect(logged.accountId, accountId);
     });
 
     test('the logged copy is not itself a template', () async {

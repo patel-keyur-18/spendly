@@ -12,6 +12,8 @@ import 'features/expenses/quick_add_screen.dart';
 import 'features/expenses/recurring_repository.dart';
 import 'features/expenses/recurring_schedule.dart';
 import 'features/home/app_shell.dart';
+import 'features/ledger/account_balance_provider.dart'
+    show balanceHiddenProvider;
 import 'features/ledger/income_screen.dart' show showIncomeConfirmSheet;
 import 'features/ledger/ledger_repository.dart';
 import 'features/onboarding/welcome_screen.dart';
@@ -86,6 +88,10 @@ class _SpendlyAppState extends ConsumerState<SpendlyApp>
       ref.invalidate(recurringReminderCheckProvider);
       ref.invalidate(incomeRecurringReminderCheckProvider);
       ref.read(refreshWidgetsActionProvider)();
+    } else {
+      // Leaving the foreground (including the app switcher's snapshot)
+      // re-masks the Home balance, so it's never left revealed in public.
+      ref.read(balanceHiddenProvider.notifier).hide();
     }
   }
 
