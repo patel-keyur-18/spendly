@@ -1,24 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
-import '../../../core/db/database.dart' show monthKeyFor;
 import '../../../core/db/row_extensions.dart';
-import '../../../core/money/money.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/widgets/category_glyph.dart';
-import '../../../features/budgets/budget_repository.dart' show categorySpendForMonthProvider;
 import '../../../features/categories/category_repository.dart';
+import '../../../features/home/dashboard_providers.dart';
+import '../widgets/macos_treemap.dart' show squarify;
 
-/// Read-only category grid — this month's spend per category, reusing
-/// `categorySpendForMonthProvider` (already keyed by month, already live).
+/// Share mosaic — every category with spend this month laid out by the same
+/// squarified-treemap algorithm as the Insights screen's treemap
+/// (`macos_treemap.dart`'s `squarify`), just full-page instead of one card:
+/// tile area is proportional to spend share, so the month composes itself
+/// as one field rather than a uniform icon-grid. Categories with no spend
+/// this month (not part of `categoryBreakdownProvider`'s slices) list below
+/// as plain chips instead of being force-fit into the mosaic at zero size.
 class MacosCategoriesScreen extends ConsumerWidget {
   const MacosCategoriesScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final categories = ref.watch(activeCategoriesProvider).value ?? const [];
-    final spend = ref.watch(categorySpendForMonthProvider(monthKeyFor(DateTime.now()))).value ?? const {};
     final palette = Theme.of(context).extension<AppPalette>()!;
+    final categories = ref.watch(activeCategoriesProvider).value ?? const [];
+    final slices = ref.watch(categoryBreakdownProvider);
+    final total = ref.watch(monthTotalProvider);
 
     if (categories.isEmpty) {
       return Center(
@@ -26,48 +32,116 @@ class MacosCategoriesScreen extends ConsumerWidget {
       );
     }
 
-    return GridView.builder(
+    final spentIds = {for (final s in slices) s.$1.id};
+    final noSpend = categories.where((c) => !spentIds.contains(c.id)).toList();
+
+    return ListView(
       padding: const EdgeInsets.fromLTRB(28, 20, 28, 32),
-      // A fixed mainAxisExtent (not childAspectRatio) so cell height never
-      // shrinks with window width — the card's content height (icon + two
-      // text lines) is fixed regardless of how narrow the window gets, and
-      // aspect-ratio-based sizing overflowed by a few pixels once the window
-      // was narrow enough to force extra columns.
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 220,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        mainAxisExtent: 118,
-      ),
-      itemCount: categories.length,
-      itemBuilder: (context, i) {
-        final c = categories[i];
-        final total = spend[c.id] ?? Money.zero;
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: palette.card,
-            border: Border.all(color: palette.line),
-            borderRadius: BorderRadius.circular(18),
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text('Categories — ${DateFormat('MMMM').format(DateTime.now())}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+            Text(
+              'Total ${total.format(locale: 'en_IN')} across ${slices.length} active categories',
+              style: TextStyle(fontSize: 12, color: palette.textDim),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        if (slices.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 32),
+            child: Text('No spending yet this month.', style: TextStyle(color: palette.textDim)),
+          )
+        else
+          SizedBox(
+            height: 460,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final rects = squarify(slices, Rect.fromLTWH(0, 0, constraints.maxWidth, constraints.maxHeight));
+                return Stack(
+                  children: [
+                    for (final r in rects)
+                      Positioned(
+                        left: r.rect.left + 2,
+                        top: r.rect.top + 2,
+                        width: (r.rect.width - 4).clamp(0, double.infinity),
+                        height: (r.rect.height - 4).clamp(0, double.infinity),
+                        child: Tooltip(
+                          message: '${r.slice.$1.name} — ${r.slice.$2.format(locale: 'en_IN')} (${(r.slice.$3 * 100).round()}%)',
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(color: r.slice.$1.color, borderRadius: BorderRadius.circular(16)),
+                            // Same threshold + FittedBox pattern as the
+                            // Insights treemap — fixed pixel thresholds
+                            // without FittedBox previously overflowed on a
+                            // cell just above the cutoff.
+                            child: r.rect.width > 56 && r.rect.height > 40
+                                ? FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    alignment: Alignment.topLeft,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        CategoryGlyph(r.slice.$1.icon, size: 20),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          r.slice.$1.name,
+                                          maxLines: 1,
+                                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                                        ),
+                                        Text(
+                                          r.slice.$2.format(locale: 'en_IN'),
+                                          maxLines: 1,
+                                          style: const TextStyle(fontFamily: 'Sora', color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15),
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                : null,
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        if (noSpend.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          Text(
+            'NO SPEND YET THIS MONTH',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.6, color: palette.textDim),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
             children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(color: c.color, borderRadius: BorderRadius.circular(12)),
-                alignment: Alignment.center,
-                child: CategoryGlyph(c.icon, size: 18),
-              ),
-              const Spacer(),
-              Text(c.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5), maxLines: 1, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 2),
-              Text('${total.format(locale: 'en_IN')} this month', style: TextStyle(fontSize: 11.5, color: palette.textDim)),
+              for (final c in noSpend)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: palette.card,
+                    border: Border.all(color: palette.line),
+                    borderRadius: BorderRadius.circular(100),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CategoryGlyph(c.icon, size: 14),
+                      const SizedBox(width: 6),
+                      Text(c.name, style: TextStyle(fontSize: 12, color: palette.textDim)),
+                    ],
+                  ),
+                ),
             ],
           ),
-        );
-      },
+        ],
+      ],
     );
   }
 }

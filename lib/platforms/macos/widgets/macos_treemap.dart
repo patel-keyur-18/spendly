@@ -5,8 +5,8 @@ import '../../../core/money/money.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../features/home/dashboard_providers.dart' show CategorySlice;
 
-class _TreemapRect {
-  _TreemapRect(this.slice, this.rect);
+class TreemapRect {
+  TreemapRect(this.slice, this.rect);
   final CategorySlice slice;
   final Rect rect;
 }
@@ -15,10 +15,12 @@ class _TreemapRect {
 /// treemap implementation (lay out one row/column at a time, picking
 /// whichever orientation keeps cells closest to square), just in Dart
 /// instead of the JS used in the original HTML prototype this app's design
-/// was translated from (see DESIGN.md).
-List<_TreemapRect> _squarify(List<CategorySlice> slices, Rect bounds) {
+/// was translated from (see DESIGN.md). Public: also reused by the
+/// Categories screen's share mosaic (`macos_categories_screen.dart`) — one
+/// proportional-area layout, two presentations.
+List<TreemapRect> squarify(List<CategorySlice> slices, Rect bounds) {
   final items = [...slices]..sort((a, b) => b.$2.minor.compareTo(a.$2.minor));
-  final out = <_TreemapRect>[];
+  final out = <TreemapRect>[];
   var remaining = items;
   var rect = bounds;
 
@@ -36,7 +38,7 @@ List<_TreemapRect> _squarify(List<CategorySlice> slices, Rect bounds) {
       var offset = rect.top;
       for (final item in row) {
         final h = rowTotal == 0 ? 0.0 : rect.height * (item.$2.minor / rowTotal);
-        out.add(_TreemapRect(item, Rect.fromLTWH(rect.left, offset, rowWidth, h)));
+        out.add(TreemapRect(item, Rect.fromLTWH(rect.left, offset, rowWidth, h)));
         offset += h;
       }
       rect = Rect.fromLTWH(rect.left + rowWidth, rect.top, rect.width - rowWidth, rect.height);
@@ -45,7 +47,7 @@ List<_TreemapRect> _squarify(List<CategorySlice> slices, Rect bounds) {
       var offset = rect.left;
       for (final item in row) {
         final w = rowTotal == 0 ? 0.0 : rect.width * (item.$2.minor / rowTotal);
-        out.add(_TreemapRect(item, Rect.fromLTWH(offset, rect.top, w, rowHeight)));
+        out.add(TreemapRect(item, Rect.fromLTWH(offset, rect.top, w, rowHeight)));
         offset += w;
       }
       rect = Rect.fromLTWH(rect.left, rect.top + rowHeight, rect.width, rect.height - rowHeight);
@@ -79,7 +81,7 @@ class MacosCategoryTreemap extends StatelessWidget {
           height: 220,
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final rects = _squarify(slices, Rect.fromLTWH(0, 0, constraints.maxWidth, constraints.maxHeight));
+              final rects = squarify(slices, Rect.fromLTWH(0, 0, constraints.maxWidth, constraints.maxHeight));
               return Stack(
                 children: [
                   for (final r in rects)

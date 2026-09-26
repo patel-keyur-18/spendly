@@ -101,22 +101,29 @@ class MacosDashboardScreen extends ConsumerWidget {
         ),
         const SizedBox(height: AppSpacing.lg),
         Row(
+          // No IntrinsicHeight here — fl_chart's SpendDonut/TrendBars are
+          // built on LayoutBuilder internally, and LayoutBuilder cannot
+          // answer an intrinsic-dimension query at all ("LayoutBuilder does
+          // not support returning intrinsic dimensions"), which crashes the
+          // whole row rather than just misaligning it. Unequal card heights
+          // are the tradeoff for not stretching to match.
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // SpendDonut is mobile's shared widget (features/home/widgets/) —
-            // its inner chart+legend layout is a fixed-width row that only
-            // fits alongside one sibling, not two, so it keeps this row to
-            // itself with TrendBars; the heatmap gets its own row below
-            // rather than squeezing a third card in here.
-            Expanded(child: _CardWrap('Where it went', const SpendDonut())),
+            // SpendDonut carries a fixed 110px chart plus a legend — more
+            // fixed-width content than TrendBars/the heatmap have, so it
+            // gets a slightly larger flex share rather than an even third.
+            Expanded(flex: 5, child: _CardWrap('Where it went', const SpendDonut())),
             const SizedBox(width: AppSpacing.lg),
-            Expanded(child: _CardWrap('6-month trend', const TrendBars())),
+            Expanded(flex: 4, child: _CardWrap('6-month trend', const TrendBars())),
+            const SizedBox(width: AppSpacing.lg),
+            Expanded(
+              flex: 4,
+              child: _CardWrap(
+                'Daily spend this month',
+                MacosCalendarHeatmap(expenses: currentMonthExpenses, month: DateTime.now()),
+              ),
+            ),
           ],
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        _CardWrap(
-          'Daily spend this month',
-          MacosCalendarHeatmap(expenses: currentMonthExpenses, month: DateTime.now()),
         ),
         const SizedBox(height: AppSpacing.lg),
         AppCard(
